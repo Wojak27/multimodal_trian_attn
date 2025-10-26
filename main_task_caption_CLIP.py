@@ -511,36 +511,15 @@ def train_epoch(epoch, args, model, train_dataloader, tokenizer, device, n_gpu, 
 
         batch = tuple(t.to(device=device, non_blocking=True) for t in batch)
 
-        if args.datatype == "ourds-audio-bbx":
-            input_ids, input_mask, segment_ids, video, video_mask, \
-            pairs_masked_text, pairs_token_labels, masked_video, video_labels_index,\
-            pairs_input_caption_ids, pairs_decoder_mask, pairs_output_caption_ids,task_type, audio, audio_mask, bbx, bbx_mask = batch
-
-            loss = model(input_ids, segment_ids, input_mask, video.float(), video_mask.float(),
-                        pairs_masked_text=pairs_masked_text, pairs_token_labels=pairs_token_labels,
-                        masked_video=masked_video, video_labels_index=video_labels_index,
-                        input_caption_ids=pairs_input_caption_ids, decoder_mask=pairs_decoder_mask,
-                        output_caption_ids=pairs_output_caption_ids,task_type=task_type, bbx=bbx.float(), bbx_mask=bbx_mask.float(), audio=audio.float(), audio_mask=audio_mask.float())
-        elif args.datatype == "ourds-QA":
-            input_ids, input_mask, segment_ids, video, video_mask, \
-            pairs_masked_text, pairs_token_labels, masked_video, video_labels_index,\
-            pairs_input_caption_ids, pairs_decoder_mask, pairs_output_caption_ids,task_type, bbx, bbx_mask, masked_bbx, bbx_labels_index, player_IDs = batch
-            
-            loss = model(input_ids, segment_ids, input_mask, video.float(), video_mask.float(),
-                        pairs_masked_text=pairs_masked_text, pairs_token_labels=pairs_token_labels,
-                        masked_video=masked_video, video_labels_index=video_labels_index,
-                        input_caption_ids=pairs_input_caption_ids, decoder_mask=pairs_decoder_mask,
-                        output_caption_ids=pairs_output_caption_ids,task_type=task_type, bbx=bbx.float(), bbx_mask=bbx_mask.float(), masked_bbx=masked_bbx.float(), bbx_labels_index=bbx_labels_index, player_IDs=player_IDs)
-        else:
-            input_ids, input_mask, segment_ids, video, video_mask, \
-            pairs_masked_text, pairs_token_labels, masked_video, video_labels_index,\
-            pairs_input_caption_ids, pairs_decoder_mask, pairs_output_caption_ids,task_type, bbx, bbx_mask, masked_bbx, bbx_labels_index = batch
-            
-            loss = model(input_ids, segment_ids, input_mask, video.float(), video_mask.float(),
-                        pairs_masked_text=pairs_masked_text, pairs_token_labels=pairs_token_labels,
-                        masked_video=masked_video, video_labels_index=video_labels_index,
-                        input_caption_ids=pairs_input_caption_ids, decoder_mask=pairs_decoder_mask,
-                        output_caption_ids=pairs_output_caption_ids,task_type=task_type, bbx=bbx.float(), bbx_mask=bbx_mask.float(), masked_bbx=masked_bbx.float(), bbx_labels_index=bbx_labels_index)
+        input_ids, input_mask, segment_ids, video, video_mask, \
+        pairs_masked_text, pairs_token_labels, masked_video, video_labels_index,\
+        pairs_input_caption_ids, pairs_decoder_mask, pairs_output_caption_ids,task_type, bbx, bbx_mask, masked_bbx, bbx_labels_index = batch
+        
+        loss = model(input_ids, segment_ids, input_mask, video.float(), video_mask.float(),
+                    pairs_masked_text=pairs_masked_text, pairs_token_labels=pairs_token_labels,
+                    masked_video=masked_video, video_labels_index=video_labels_index,
+                    input_caption_ids=pairs_input_caption_ids, decoder_mask=pairs_decoder_mask,
+                    output_caption_ids=pairs_output_caption_ids,task_type=task_type, bbx=bbx.float(), bbx_mask=bbx_mask.float())
         
         progress_bar.set_description(f"Epoch {epoch+1}, Step {step+1}, Loss: {float(loss):.4f}")
         if writer is not None:
@@ -549,7 +528,10 @@ def train_epoch(epoch, args, model, train_dataloader, tokenizer, device, n_gpu, 
             wandb.log({"Loss/train": loss})
 
         if n_gpu > 1:
-            loss = loss.mean()  # mean() to average on multi-gpu.
+            try:
+                loss = loss.mean()  # mean() to average on multi-gpu.
+            except:
+                loss = loss
         if args.gradient_accumulation_steps > 1:
             loss = loss / args.gradient_accumulation_steps
 
@@ -1085,7 +1067,7 @@ def init_training_caption(args):
             if args.local_rank == 0:
                 logger.info("Epoch %d/%s Finished, Train Loss: %f", epoch + 1, args.epochs, tr_loss)
                 output_model_file = save_model(epoch, args, model, type_name="")
-                if epoch > 1:
+                if epoch > 0:
                     logger.info("***** Running validation *****")
                     Scores = eval_epoch(args, model, val_dataloader, tokenizer, device, n_gpu, nlgEvalObj=nlgEvalObj)
                     if writer is not None:
@@ -1141,11 +1123,8 @@ class Args_Caption:
         self.train_csv = "{}/ourds_train.44k.csv".format(self.data_dir)
         self.val_csv = "{}/ourds_JSFUSION_test.csv".format(self.data_dir)
         self.data_path = "{}/new_ourds_description_only.json".format(self.data_dir)
-        # self.features_path = "{}/ourds_features_w_size_32.pkl".format(self.features_dir)
-        # self.features_path = "{}/ourds_features_w_size_8.pkl".format(self.features_dir)
         self.bbx_features_path = "{}/cls2_ball_basket_sum_concat_original_courtline_fea_1.pickle".format(self.data_dir)
         self.features_path = "{}/ourds_videos_timesformer_features.pickle".format(self.features_dir)
-        self.audio_features_path = "{}/ourds_audio_VGGish_features.pkl".format(self.data_dir)
         self.num_thread_reader = 0
         self.lr = 3e-5
         self.epochs = 10
@@ -1195,7 +1174,7 @@ class Args_Caption:
         self.bottleneck_fusion_layers = 0,
         self.bottleneck_use_conv = False
         self.export_attn_scores = export_attention_scores
-        self.visual_use_diagonal_masking = False
+        self.visual_use_diagonal_masking = True
         self.train_tasks = [0,0,1,0]
         self.cross_masking = None # "upper", "lower", "upper-no-inp", "lower-no-inp", None, "random", "random-global"
         self.test_tasks = [0,0,1,0]
@@ -1204,12 +1183,10 @@ class Args_Caption:
         self.unsup_pretrain = False
         self.bert_weights_only = False
         self.use_answer = None
-        self.join_vision_audio = True
         self.fine_tune_extractor = False
-        self.extractor = "videomae"
         self.player_embedding = "CLIP" # BERT, CLIP, none, BERT-Stat
         self.use_random_embeddings = False
-        self.player_embedding_order = "lineup" # lineup, lineup-ordered, posession, none, BC
+        self.player_embedding_order = "lineup" # lineup, posession
         self.use_BBX_features = True
         self.max_rand_players = 5
 if __name__ == "__main__":

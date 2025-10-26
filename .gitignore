@@ -11,3 +11,7 @@ assets
 *.pickle
 *.csv
 __pycache__/*.pyc
+data
+wandb
+.env
+Finetuned_models
