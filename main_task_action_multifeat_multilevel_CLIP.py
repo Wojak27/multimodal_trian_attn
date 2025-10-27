@@ -549,7 +549,7 @@ def train_epoch(epoch, args, model, train_dataloader, tokenizer, device, n_gpu, 
                         pairs_masked_text=pairs_masked_text, pairs_token_labels=pairs_token_labels,
                         masked_video=masked_video, video_labels_index=video_labels_index,
                         input_caption_ids=pairs_input_caption_ids, decoder_mask=pairs_decoder_mask,
-                        output_caption_ids=pairs_output_caption_ids,task_type=task_type, bbx=bbx.float(), bbx_mask=bbx_mask.float(), masked_bbx=masked_bbx.float(), bbx_labels_index=bbx_labels_index)
+                        output_caption_ids=pairs_output_caption_ids,task_type=task_type, bbx=bbx.float(), bbx_mask=bbx_mask.float())
         if wandb is not None:
             wandb.log({"LossAction/train": loss})
         time2 = time.time()
@@ -1219,8 +1219,7 @@ if __name__ == "__main__":
     args.batch_size_val = 16
     args.t1_postprocessing = True
     if pretrained:
-        args.init_model = "{}/MAEpretrained_models/out_pretrain_6e_0b_3c_1d_audio_kinetics_scaled_90prob_3_mEncL_896bs/pytorch_model.bin.pretrain.200".format(os.environ["DIR_PATH"])
-        # args.init_model = "{}/Finetuned_models/3e6c3c_kinetics/pytorch_model.bin.11".format(os.environ["DIR_PATH"])
+        args.init_model = "{}/weight/univl.pretrained.bin".format(".")
     args.t1_postprocessing = False
     args.player_embedding_order = "lineup"
     args.use_random_embeddings = False

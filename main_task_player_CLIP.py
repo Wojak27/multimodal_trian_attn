@@ -541,7 +541,7 @@ def train_epoch(epoch, args, model, train_dataloader, tokenizer, device, n_gpu, 
                         pairs_masked_text=pairs_masked_text, pairs_token_labels=pairs_token_labels,
                         masked_video=masked_video, video_labels_index=video_labels_index,
                         input_caption_ids=pairs_input_caption_ids, decoder_mask=pairs_decoder_mask,
-                        output_caption_ids=pairs_output_caption_ids,task_type=task_type, bbx=bbx.float(), bbx_mask=bbx_mask.float(), masked_bbx=masked_bbx.float(), bbx_labels_index=bbx_labels_index)
+                        output_caption_ids=pairs_output_caption_ids,task_type=task_type, bbx=bbx.float(), bbx_mask=bbx_mask.float())
         if wandb is not None:
             wandb.log({"LossPlayer/train": loss})
         time2 = time.time()

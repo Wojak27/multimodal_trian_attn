@@ -1133,7 +1133,6 @@ class Args_Caption:
         self.lr_decay = 0.9
         self.n_display = 100
         self.video_dim = 768
-        self.audio_dim = 128
         self.seed = 42
         self.max_words = 30
         self.max_frames = 48

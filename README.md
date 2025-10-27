@@ -1,27 +1,20 @@
-# Sports Video Analysis on Large-Scale Data （Accepted by ECCV2022）
+# [MMSports 2025] Towards Robust Identity Incorporation in Sports Video Captioning Systems
 
-*[Dekun Wu](https://jackwu502.github.io/)*<sup>1*</sup>, 
-*[He Zhao](https://joehezhao.github.io/)*<sup>2*</sup>, 
-*Xingce Bao*<sup>3</sup>, 
-*[Richard P. Wildes](http://www.cse.yorku.ca/~wildes/)*<sup>2</sup>, 
 
-<sup>1</sup>University of Pittsburgh &nbsp;&nbsp;
-<sup>2</sup>York University &nbsp;&nbsp; 
-<sup>3</sup>EPFL &nbsp;&nbsp; 
+* Karol Wojtulewicz *<sup>1*</sup>, 
+* Niklas Carlsson *<sup>1*</sup>, 
 
-<span>*</span> Equal Contribution
+<sup>1</sup> Linköping University &nbsp;&nbsp;
+
+
 <div align="center">
-<img src="img/ECCV2022_TeaserFigure.jpg" width=400px></img>
+<img src="img/MMSports2025_1.png" width=400px></img>
 </div>
 
-**Abstract**: This paper investigates the  modeling of automated machine description on sports video, which has seen much progress recently. Nevertheless, state-of-the-art approaches fall quite short of capturing how human experts analyze sports scenes. In this paper, we propose a novel large-scale NBA dataset for Sports Video Analysis (NSVA) with a focus on captioning, to address the above challenges. We also design a unified approach to process raw videos into a stack of meaningful features with minimum labelling efforts, showing that cross modeling on such features using a transformer architecture leads to strong performance. In addition, we demonstrate the broad application of NSVA by addressing two additional tasks, namely fine-grained sports action recognition and salient player identification.
+**Abstract**: Sports video analysis is a rapidly growing field. Yet, identity-aware, temporally grounded captioning, linking global player identities across fast, multi-agent interactions, remains underexplored. We address this gap with a novel method for integrating player identity into multimodal sports video models, improving captioning, action understanding, and player recognition. Our approach (1) employs triangular attention masking within modality encoders, capturing temporal inductive biases to better model action sequences and their causal flow, (2) proposes player token injection for global identity grounding, enabling the model to connect visual observations to named individuals, and (3) simulates ball possession sequences, mimicking real-world tracking data to strengthen the link between actions and involved players. Both combined and individually, each of these components allows us to significantly improve caption quality and player classification accuracy, as well as enhance the temporal comprehension in our multimodal data. Using extensive experimentation, we show that our method achieves substantial improvements over prior work (e.g., up-to 225% for some video captioning tasks and over 14× for some player recognition tasks), generalize to other domains, and provide insights into the best design tradeoffs. The results highlight a promising avenue for automated understanding and interpretation of dynamic sports content.
 
-## Algorithm outline
-<div align="center">
-<img src="img/ECCV2022_Algorithm.jpg" width=550px></img>
-</div>
-
-**Approach**: Our approach relies on feature representations extracted from multiple orthogonal perspectives, we adopt the framework of UniVL [1], a network designed for cross feature interactive modeling, as our base model. It consists of four transformer backbones that are responsible for coarse feature encoding (using TimeSformer [2]), fine-grained feature encoding (e.g., basket, ball, players), cross attention and decoding, respectively. 
+# Overview
+This project and repository are based for the most part on *Sports Video Analysis on Large-Scale Data (ECCV2022)* paper. 
 
 ## Code Overview
 The following sections contain scripts or PyTorch code for:
