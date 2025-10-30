@@ -16,8 +16,8 @@ parser.add_argument("-worker", type=int,
                     help="worker#")
 
 # """ Output the top 5 Kinetics classes predicted by the model """
-file_weight = "/home/ubuntu/vcap/S3D/S3D_kinetics400.pt"
-# file_weight = "/home/ubuntu/vcap/content2/MIL-NCE_HowTo100M/checkpoint/milnce/epoch0006.pth.tar"
+file_weight = "./weight/S3D_kinetics400.pt"
+# file_weight = "./weight/milnce_epoch0006.pth.tar"
 num_class = 400
 
 import torch as th
@@ -202,8 +202,8 @@ def transform(snippet):
 def findFiles(path): return glob.glob(path)
 
 if __name__ == "__main__":
-    # vid_folders = os.listdir("/home/ubuntu/vcap/content2/pbp_videos/test")
-    test_videos = list(set(findFiles('/home/ubuntu/vcap/content2/pbp_videos/test/*')))
+    # vid_folders = os.listdir("./data/pbp_videos/test")
+    test_videos = list(set(findFiles('./data/pbp_videos/test/*')))
     extracting_features(test_videos[0])
     print()
     

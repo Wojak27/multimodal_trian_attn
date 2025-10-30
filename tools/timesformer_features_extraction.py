@@ -65,8 +65,8 @@ def main(file_path):
     global model
 
     """Read mp4 files"""
-    mp4_path = os.path.join("/home/jack/nsva/pbp_videos", file_path)
-    out_path = os.path.join("/home/jack/nsva/timesformer_features", file_path)
+    mp4_path = os.path.join("./data/pbp_videos", file_path)
+    out_path = os.path.join("./data/timesformer_features", file_path)
 
     if not os.path.exists(out_path):
         os.mkdir(out_path)
@@ -163,9 +163,9 @@ def transform(snippet):
 
 
 if __name__ == "__main__":
-    vid_folders = os.listdir("/home/jack/nsva/pbp_videos")
+    vid_folders = os.listdir("./data/pbp_videos")
     print(vid_folders)
-    store_dir = os.listdir("/home/jack/nsva/timesformer_features")
+    store_dir = os.listdir("./data/timesformer_features")
 
     for f in vid_folders:
         if f not in store_dir:

@@ -2,6 +2,14 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import unicode_literals
 from __future__ import print_function
+from dataloaders.dataloader_msrvtt_caption import MSRVTT_Caption_DataLoader
+from dataloaders.dataloader_ourds_CLIP import OURDS_CLIP_DataLoader
+
+from dataloaders.dataloader_ourds_caption import OURDS_Caption_DataLoader
+from dataloaders.dataloader_youcook_caption import Youcook_Caption_DataLoader
+from tqdm import tqdm
+import wandb
+from datetime import datetime
 from distutils.log import debug
 from posixpath import split
 
@@ -21,17 +29,16 @@ from modules.modeling import UniVL
 from modules.optimization import BertAdam
 from modules.beam import Beam
 from torch.utils.data import DataLoader
-from dataloaders.dataloader_youcook_caption import Youcook_Caption_DataLoader
-from dataloaders.dataloader_msrvtt_caption import MSRVTT_Caption_DataLoader
-from dataloaders.dataloader_ourds_caption import OURDS_Caption_DataLoader
 from util import get_logger
 from torch import nn
 from torchsummary import summary
 import pickle5 as pickle
 import re
-torch.distributed.init_process_group(backend="nccl")
+# torch.distributed.init_process_group(backend="nccl")
 
 global logger
+
+wandb.login()
 
 def get_args(description='UniVL on Caption Task'):
     parser = argparse.ArgumentParser(description=description)
@@ -71,7 +78,7 @@ def get_args(description='UniVL on Caption Task'):
     parser.add_argument('--n_pair', type=int, default=1, help='Num of pair to output from data loader')
 
 
-    parser.add_argument("--output_dir", default='/media/chris/hdd1/UniVL_processing_code/ourds_data_timesformer_bbx/ckpt_ourds_caption', type=str, required=False,
+    parser.add_argument("--output_dir", default='./output/ckpt_ourds_caption', type=str, required=False,
                         help="The output directory where the model predictions and checkpoints will be written.")
     parser.add_argument("--bert_model", default="bert-base-uncased", type=str, required=False, help="Bert pre-trained model")
     parser.add_argument("--visual_model", default="visual-base", type=str, required=False, help="Visual module")
@@ -114,6 +121,7 @@ def get_args(description='UniVL on Caption Task'):
     parser.add_argument('--train_tasks', default=[0,0,1,0],type=lambda s: [int(item) for item in s.split(',')], help="train with specific tasks: 1 for yes, 0 for no")
     parser.add_argument('--test_tasks',default=[0,0,1,0], type=lambda s: [int(item) for item in s.split(',')], help="test with specific tasks: 1 for yes, 0 for no")
     parser.add_argument('--t1_postprocessing', action='store_true', help="Whether postprocess output with action type")
+    parser.add_argument('--use_random_embeddings', action='store_true', help="Whether postprocess output with action type")
 
     parser.add_argument('--stage_two', action='store_true', help="Whether training with decoder.")
     args = parser.parse_args()
@@ -142,9 +150,9 @@ def set_seed_logger(args):
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
 
-    world_size = torch.distributed.get_world_size()
+    # world_size = torch.distributed.get_world_size()
     torch.cuda.set_device(args.local_rank)
-    args.world_size = world_size
+    # args.world_size = world_size
 
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir, exist_ok=True)
@@ -156,7 +164,7 @@ def set_seed_logger(args):
         for key in sorted(args.__dict__):
             logger.info("  <<< {}: {}".format(key, args.__dict__[key]))
 
-    return args
+    return args, logger
 
 def init_device(args, local_rank):
     global logger
@@ -218,8 +226,8 @@ def prep_optimizer(args, model, num_train_optimization_steps, device, n_gpu, loc
                          schedule='warmup_linear', t_total=num_train_optimization_steps, weight_decay=0.01,
                          max_grad_norm=1.0)
 
-    model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[local_rank],
-                                                      output_device=local_rank, find_unused_parameters=True)
+    # model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[local_rank],
+    #                                                   output_device=local_rank, find_unused_parameters=True)
 
     return optimizer, scheduler, model
 
@@ -271,6 +279,7 @@ def dataloader_youcook_test(args, tokenizer):
         logger.info('YoucookII validation pairs: {}'.format(len(youcook_testset)))
     return dataloader_youcook, len(youcook_testset)
 
+
 def dataloader_msrvtt_train(args, tokenizer):
     msrvtt_dataset = MSRVTT_Caption_DataLoader(
         csv_path=args.train_csv,
@@ -319,6 +328,7 @@ def dataloader_msrvtt_test(args, tokenizer, split_type="test",):
     )
     return dataloader_msrvtt, len(msrvtt_testset)
 
+
 def dataloader_ourds_train(args, tokenizer):
     ourds_dataset = OURDS_Caption_DataLoader(
         csv_path=args.train_csv,
@@ -333,18 +343,17 @@ def dataloader_ourds_train(args, tokenizer):
         split_task = args.train_tasks
     )
 
-    train_sampler = torch.utils.data.distributed.DistributedSampler(ourds_dataset)
+    # train_sampler = torch.utils.data.Sampler(ourds_dataset)
     dataloader = DataLoader(
         ourds_dataset,
         batch_size=args.batch_size // args.n_gpu,
         num_workers=args.num_thread_reader,
         pin_memory=False,
-        shuffle=(train_sampler is None),
-        sampler=train_sampler,
+        shuffle=True,
         drop_last=True,
     )
 
-    return dataloader, len(ourds_dataset), train_sampler
+    return dataloader, len(ourds_dataset), None
 
 def dataloader_ourds_test(args, tokenizer, split_type="test"):
     ourds_testset = OURDS_Caption_DataLoader(
@@ -370,6 +379,80 @@ def dataloader_ourds_test(args, tokenizer, split_type="test"):
         drop_last=False
     )
     return dataloader_ourds, len(ourds_testset)
+
+
+def dataloader_ourds_CLIP_train(args, tokenizer):
+    ourds_dataset = OURDS_CLIP_DataLoader(
+        csv_path=args.train_csv,
+        json_path="./data/new_ourds_description_only.json",
+        video_feature=args.video_feature,
+        bbx_feature=args.video_bbx_feature,
+        max_words=args.max_words,
+        feature_framerate=args.feature_framerate,
+        tokenizer=tokenizer,
+        max_frames=args.max_frames,
+        split_type="train",
+        split_task = args.train_tasks,
+        use_answer=args.use_answer,
+        is_pretraining=args.do_pretrain,
+        use_random_embeddings=args.use_random_embeddings,
+        num_samples=100000,
+        mask_prob=0.25,
+        only_players=True,
+        use_real_name=False,
+        player_embedding_order=args.player_embedding_order,
+        use_BBX_features=args.use_BBX_features,
+        player_embedding=args.player_embedding,
+        max_rand_players=args.max_rand_players
+    )
+
+    # train_sampler = torch.utils.data.Sampler(ourds_dataset)
+    dataloader = DataLoader(
+        ourds_dataset,
+        batch_size=args.batch_size // args.n_gpu,
+        num_workers=args.num_thread_reader,
+        pin_memory=False,
+        shuffle=True,
+        drop_last=True,
+    )
+
+    return dataloader, len(ourds_dataset), None
+
+def dataloader_ourds_CLIP_test(args, tokenizer, split_type="test"):
+    ourds_testset = OURDS_CLIP_DataLoader(
+        csv_path=args.val_csv,
+        json_path="./data/new_ourds_description_only.json",
+        video_feature=args.video_feature,
+        bbx_feature=args.video_bbx_feature,
+        max_words=args.max_words,
+        feature_framerate=args.feature_framerate,
+        tokenizer=tokenizer,
+        max_frames=args.max_frames,
+        use_random_embeddings=args.use_random_embeddings,
+        split_type=split_type,
+        split_task = args.test_tasks,
+        use_answer=args.use_answer,
+        is_pretraining=args.do_pretrain,
+        num_samples=0,
+        only_players=True,
+        use_real_name=False,
+        player_embedding_order=args.player_embedding_order,
+        use_BBX_features=args.use_BBX_features,
+        player_embedding=args.player_embedding,
+        max_rand_players=args.max_rand_players
+    )
+
+    test_sampler = SequentialSampler(ourds_testset)
+    dataloader_ourds = DataLoader(
+        ourds_testset,
+        sampler=test_sampler,
+        batch_size=args.batch_size_val,
+        num_workers=args.num_thread_reader,
+        pin_memory=False,
+        drop_last=False
+    )
+    return dataloader_ourds, len(ourds_testset)
+
 
 def convert_state_dict_type(state_dict, ttype=torch.FloatTensor):
     if isinstance(state_dict, dict):
@@ -397,7 +480,6 @@ def load_model(epoch, args, n_gpu, device, model_file=None):
     if model_file is None or len(model_file) == 0:
         model_file = os.path.join(args.output_dir, "pytorch_model.bin.{}".format(epoch))
 
-    #model_file = '/home/ubuntu/vcap/content/ckpts/ckpt_ourds_caption/pytorch_model.bin.6'
     if os.path.exists(model_file):
         model_state_dict = torch.load(model_file, map_location='cpu')
         if args.local_rank == 0:
@@ -413,7 +495,7 @@ def load_model(epoch, args, n_gpu, device, model_file=None):
     return model
 
 def train_epoch(epoch, args, model, train_dataloader, tokenizer, device, n_gpu, optimizer, scheduler,
-                global_step, nlgEvalObj=None, local_rank=0):
+                global_step, nlgEvalObj=None, local_rank=0, writer=None):
     global logger
     torch.cuda.empty_cache()
     model.train()
@@ -421,23 +503,36 @@ def train_epoch(epoch, args, model, train_dataloader, tokenizer, device, n_gpu, 
     start_time = time.time()
     total_loss = 0
 
-    for step, batch in enumerate(train_dataloader):
+    # Initialize tqdm progress bar
+    progress_bar = tqdm(enumerate(train_dataloader), total=len(train_dataloader), desc="Training")
+    
+    for step, batch in progress_bar:
 
         
+
         batch = tuple(t.to(device=device, non_blocking=True) for t in batch)
 
         input_ids, input_mask, segment_ids, video, video_mask, \
         pairs_masked_text, pairs_token_labels, masked_video, video_labels_index,\
-        pairs_input_caption_ids, pairs_decoder_mask, pairs_output_caption_ids,task_type, bbx, bbx_mask = batch
-
+        pairs_input_caption_ids, pairs_decoder_mask, pairs_output_caption_ids,task_type, bbx, bbx_mask, masked_bbx, bbx_labels_index = batch
+        
         loss = model(input_ids, segment_ids, input_mask, video.float(), video_mask.float(),
-                     pairs_masked_text=pairs_masked_text, pairs_token_labels=pairs_token_labels,
-                     masked_video=masked_video, video_labels_index=video_labels_index,
-                     input_caption_ids=pairs_input_caption_ids, decoder_mask=pairs_decoder_mask,
-                     output_caption_ids=pairs_output_caption_ids,task_type=task_type, bbx=bbx.float(), bbx_mask=bbx_mask.float())
+                    pairs_masked_text=pairs_masked_text, pairs_token_labels=pairs_token_labels,
+                    masked_video=masked_video, video_labels_index=video_labels_index,
+                    input_caption_ids=pairs_input_caption_ids, decoder_mask=pairs_decoder_mask,
+                    output_caption_ids=pairs_output_caption_ids,task_type=task_type, bbx=bbx.float(), bbx_mask=bbx_mask.float())
+        
+        progress_bar.set_description(f"Epoch {epoch+1}, Step {step+1}, Loss: {float(loss):.4f}")
+        if writer is not None:
+            writer.add_scalar("Loss/train", loss, epoch)
+        if wandb is not None:
+            wandb.log({"Loss/train": loss})
 
         if n_gpu > 1:
-            loss = loss.mean()  # mean() to average on multi-gpu.
+            try:
+                loss = loss.mean()  # mean() to average on multi-gpu.
+            except:
+                loss = loss
         if args.gradient_accumulation_steps > 1:
             loss = loss / args.gradient_accumulation_steps
 
@@ -456,14 +551,15 @@ def train_epoch(epoch, args, model, train_dataloader, tokenizer, device, n_gpu, 
             
             del video, bbx
             global_step += 1
-            if global_step % log_step == 0 and local_rank == 0:
-                logger.info("Epoch: %d/%s, Step: %d/%d, Lr: %s, Loss: %f, Time/step: %f", epoch + 1,
-                            args.epochs, step + 1,
-                            len(train_dataloader), "-".join([str('%.6f'%itm) for itm in sorted(list(set(optimizer.get_lr())))]),
-                            float(loss),
-                            (time.time() - start_time) / (log_step * args.gradient_accumulation_steps))
-                start_time = time.time()
-
+            # if global_step % log_step == 0 and local_rank == 0:
+            #     logger.info("Epoch: %d/%s, Step: %d/%d, Lr: %s, Loss: %f, Time/step: %f", epoch + 1,
+            #                 args.epochs, step + 1,
+            #                 len(train_dataloader), "-".join([str('%.6f'%itm) for itm in sorted(list(set(optimizer.get_lr())))]),
+            #                 float(loss),
+            #                 (time.time() - start_time) / (log_step * args.gradient_accumulation_steps))
+            #     start_time = time.time()
+    progress_bar.close()
+    
     total_loss = total_loss / len(train_dataloader)
     return total_loss, global_step
 
@@ -513,6 +609,30 @@ def collate_active_info(input_tuples, inst_idx_to_position_map, active_inst_idx_
     return (active_sequence_output_rpt, active_visual_output_rpt, active_input_ids_rpt, active_input_mask_rpt, active_video_mask_rpt,active_task_type_rpt, active_bbx_output_rpt, active_bbx_mask_rpt), \
            active_inst_idx_to_position_map
 
+def collate_active_infoVL(input_tuples, inst_idx_to_position_map, active_inst_idx_list, n_bm, device):
+    assert isinstance(input_tuples, tuple)
+    sequence_output_rpt, visual_output_rpt, input_ids_rpt, input_mask_rpt, video_mask_rpt,task_type_rpt = input_tuples
+
+    # Sentences which are still active are collected,
+    # so the decoder will not run on completed sentences.
+    n_prev_active_inst = len(inst_idx_to_position_map)
+    active_inst_idx = [inst_idx_to_position_map[k] for k in active_inst_idx_list]
+    active_inst_idx = torch.LongTensor(active_inst_idx).to(device)
+
+    active_sequence_output_rpt = collect_active_part(sequence_output_rpt, active_inst_idx, n_prev_active_inst, n_bm)
+    active_visual_output_rpt = collect_active_part(visual_output_rpt, active_inst_idx, n_prev_active_inst, n_bm)
+
+    
+    active_input_ids_rpt = collect_active_part(input_ids_rpt, active_inst_idx, n_prev_active_inst, n_bm)
+    active_input_mask_rpt = collect_active_part(input_mask_rpt, active_inst_idx, n_prev_active_inst, n_bm)
+    active_video_mask_rpt = collect_active_part(video_mask_rpt, active_inst_idx, n_prev_active_inst, n_bm)
+
+    active_inst_idx_to_position_map = get_inst_idx_to_tensor_position_map(active_inst_idx_list)
+    active_task_type_rpt = collect_active_part(task_type_rpt, active_inst_idx, n_prev_active_inst, n_bm)
+
+    return (active_sequence_output_rpt, active_visual_output_rpt, active_input_ids_rpt, active_input_mask_rpt, active_video_mask_rpt,active_task_type_rpt), \
+           active_inst_idx_to_position_map
+
 def beam_decode_step(decoder, inst_dec_beams, len_dec_seq,
                      inst_idx_to_position_map, n_bm, device, input_tuples, decoder_length=None,task_type = None):
 
@@ -526,11 +646,19 @@ def beam_decode_step(decoder, inst_dec_beams, len_dec_seq,
         return dec_partial_seq
 
     def predict_word(next_decoder_ids, n_active_inst, n_bm, device, input_tuples,task_type = task_type):
-        sequence_output_rpt, visual_output_rpt, input_ids_rpt, input_mask_rpt, video_mask_rpt, bbz_output_rpt, bbx_mask = input_tuples
+        
+        if args.fine_tune_extractor == False:
+            sequence_output_rpt, visual_output_rpt, input_ids_rpt, input_mask_rpt, video_mask_rpt, bbz_output_rpt, bbx_mask = input_tuples
+        else:
+            sequence_output_rpt, visual_output_rpt, input_ids_rpt, input_mask_rpt, video_mask_rpt = input_tuples
         next_decoder_mask = torch.ones(next_decoder_ids.size(), dtype=torch.uint8).to(device)
 
-        dec_output = decoder(sequence_output_rpt, visual_output_rpt, input_ids_rpt, input_mask_rpt,
-                             video_mask_rpt, next_decoder_ids, next_decoder_mask, bbz_output_rpt, bbx_mask, shaped=True, get_logits=True,task_type = task_type)
+        if args.fine_tune_extractor == False:
+            dec_output = decoder(sequence_output_rpt, visual_output_rpt, input_ids_rpt, input_mask_rpt,
+                                video_mask_rpt, next_decoder_ids, next_decoder_mask, bbz_output_rpt, bbx_mask, shaped=True, get_logits=True,task_type = task_type)
+        else:
+            dec_output = decoder(sequence_output_rpt, visual_output_rpt, input_ids_rpt, input_mask_rpt,
+                                video_mask_rpt, next_decoder_ids, next_decoder_mask, shaped=True, get_logits=True,task_type = task_type)
         dec_output = dec_output[:, -1, :]
         word_prob = torch.nn.functional.log_softmax(dec_output, dim=1)
         word_prob = word_prob.view(n_active_inst, n_bm, -1)
@@ -583,38 +711,71 @@ def eval_epoch(args, model, test_dataloader, tokenizer, device, n_gpu, nlgEvalOb
     all_result_lists = []
     all_caption_lists = []
     model.eval()
-    for b_id, batch in enumerate(test_dataloader):
+    
+    # Initialize tqdm progress bar
+    progress_bar = tqdm(enumerate(test_dataloader), total=len(test_dataloader), desc="Training")
+    
+    for b_id, batch in progress_bar:
+        
 
 
         batch = tuple(t.to(device, non_blocking=True) for t in batch)
 
-        input_ids, input_mask, segment_ids, video, video_mask, \
-        pairs_masked_text, pairs_token_labels, masked_video, video_labels_index, \
-        pairs_input_caption_ids, pairs_decoder_mask, pairs_output_caption_ids,task_type, bbx, bbx_mask = batch
-
+        if args.datatype == "ourds-audio-bbx":
+            input_ids, input_mask, segment_ids, video, video_mask, \
+            pairs_masked_text, pairs_token_labels, masked_video, video_labels_index, \
+            pairs_input_caption_ids, pairs_decoder_mask, pairs_output_caption_ids,task_type,audio,audio_mask, bbx, bbx_mask = batch
+            bbx, bbx_mask, audio, audio_mask = audio.float(), audio_mask.float(), bbx.float(), bbx_mask.float()
+        elif args.datatype == "ourds-QA":
+            input_ids, input_mask, segment_ids, video, video_mask, \
+            pairs_masked_text, pairs_token_labels, masked_video, video_labels_index, \
+            pairs_input_caption_ids, pairs_decoder_mask, pairs_output_caption_ids,task_type, bbx, bbx_mask, _, _,_ = batch
+        elif args.datatype == "ourds-QA-raw":
+            input_ids, input_mask, segment_ids, video, video_mask, \
+            pairs_masked_text, pairs_token_labels, masked_video, video_labels_index, \
+            pairs_input_caption_ids, pairs_decoder_mask, pairs_output_caption_ids,task_type, bbx, bbx_mask, _, _ = batch
+        elif args.datatype == "ourds-CLIP":
+            input_ids, input_mask, segment_ids, video, video_mask, \
+            pairs_masked_text, pairs_token_labels, masked_video, video_labels_index, \
+            pairs_input_caption_ids, pairs_decoder_mask, pairs_output_caption_ids,task_type, bbx, bbx_mask, _, _ = batch
+        else:
+            input_ids, input_mask, segment_ids, video, video_mask, \
+            pairs_masked_text, pairs_token_labels, masked_video, video_labels_index, \
+            pairs_input_caption_ids, pairs_decoder_mask, pairs_output_caption_ids,task_type, bbx, bbx_mask = batch
 
 
         with torch.no_grad():
             sequence_output, visual_output = model.get_sequence_visual_output(input_ids, segment_ids, input_mask, video, video_mask,task_type = task_type)
-            if model.multibbxs:
-                batch_sz,_,bbx_num,max_frame_num,fea_sz = bbx.shape
-                bbx = bbx.permute((0, 1, 3, 2, 4)).reshape(batch_sz,_,max_frame_num,fea_sz*bbx_num)
-                #bbx = model.bbx_fea_fusion_two(bbx)
-            bbx_output = model.get_bbx_output(bbx.squeeze(1), bbx_mask.squeeze(1))
+            if args.fine_tune_extractor == False:
+                if model.multibbxs:
+                    batch_sz,_,bbx_num,max_frame_num,fea_sz = bbx.shape
+                    bbx = bbx.permute((0, 1, 3, 2, 4)).reshape(batch_sz,_,max_frame_num,fea_sz*bbx_num)
+                    #bbx = model.bbx_fea_fusion_two(bbx)
+                if "audio" in args.task_type:
+                    bbx = model.audio_embed(bbx)
+                    bbx = bbx.squeeze(1)
+                    bbx_output = model.get_bbx_output(bbx.squeeze(1), bbx_mask.squeeze(1), shaped=True)
+                else:
+                    bbx_output = model.get_bbx_output(bbx.squeeze(1), bbx_mask.squeeze(1))
 
             # -- Repeat data for beam search
             n_bm = 5 # beam_size
             device = sequence_output.device
             n_inst, len_s, d_h = sequence_output.size()
             _, len_v, v_h = visual_output.size()
+            # visual_output = visual_output.unsqueeze(1)
 
-            decoder = model.decoder_caption
+            if args.fine_tune_extractor == False:
+                decoder = model.decoder_caption
+            else:
+                decoder = model.decoder_captionVL
 
             # Note: shaped first, then decoder need the parameter shaped=True
             input_ids = input_ids.view(-1, input_ids.shape[-1])
             input_mask = input_mask.view(-1, input_mask.shape[-1])
             video_mask = video_mask.view(-1, video_mask.shape[-1])
-            bbx_mask = bbx_mask.view(-1, bbx_mask.shape[-1])
+            if args.fine_tune_extractor == False:
+                bbx_mask = bbx_mask.view(-1, bbx_mask.shape[-1])
 
             # The following line need to be changed soon
             if args.use_prefix_tuning !=False:
@@ -622,12 +783,14 @@ def eval_epoch(args, model, test_dataloader, tokenizer, device, n_gpu, nlgEvalOb
 
             sequence_output_rpt = sequence_output.repeat(1, n_bm, 1).view(n_inst * n_bm, len_s, d_h)
             visual_output_rpt = visual_output.repeat(1, n_bm, 1).view(n_inst * n_bm, len_v, v_h)
-            bbx_output_rpt = bbx_output.repeat(1, n_bm, 1).view(n_inst * n_bm, len_v, v_h)
+            if args.fine_tune_extractor == False:
+                bbx_output_rpt = bbx_output.repeat(1, n_bm, 1).view(n_inst * n_bm, len_v, v_h)
 
             input_ids_rpt = input_ids.repeat(1, n_bm).view(n_inst * n_bm, len_s)
             input_mask_rpt = input_mask.repeat(1, n_bm).view(n_inst * n_bm, len_s)
             video_mask_rpt = video_mask.repeat(1, n_bm).view(n_inst * n_bm, len_v)
-            bbx_mask_rpt = bbx_mask.repeat(1, n_bm).view(n_inst * n_bm, len_v)
+            if args.fine_tune_extractor == False:
+                bbx_mask_rpt = bbx_mask.repeat(1, n_bm).view(n_inst * n_bm, len_v)
 
             task_type_rpt = task_type.repeat(n_bm)
 
@@ -638,17 +801,28 @@ def eval_epoch(args, model, test_dataloader, tokenizer, device, n_gpu, nlgEvalOb
             inst_idx_to_position_map = get_inst_idx_to_tensor_position_map(active_inst_idx_list)
             # -- Decode
             for len_dec_seq in range(1, args.max_words + 1):
-                active_inst_idx_list = beam_decode_step(decoder, inst_dec_beams,
-                                                        len_dec_seq, inst_idx_to_position_map, n_bm, device,
-                                                        (sequence_output_rpt, visual_output_rpt, input_ids_rpt, input_mask_rpt, video_mask_rpt, bbx_output_rpt, bbx_mask_rpt), task_type = task_type_rpt)
+                if args.fine_tune_extractor == False:
+                    active_inst_idx_list = beam_decode_step(decoder, inst_dec_beams,
+                                                            len_dec_seq, inst_idx_to_position_map, n_bm, device,
+                                                            (sequence_output_rpt, visual_output_rpt, input_ids_rpt, input_mask_rpt, video_mask_rpt, bbx_output_rpt, bbx_mask_rpt), task_type = task_type_rpt)
+                else:
+                    active_inst_idx_list = beam_decode_step(decoder, inst_dec_beams,
+                                                            len_dec_seq, inst_idx_to_position_map, n_bm, device,
+                                                            (sequence_output_rpt, visual_output_rpt, input_ids_rpt, input_mask_rpt, video_mask_rpt), task_type = task_type_rpt)
 
                 if not active_inst_idx_list:
                     break  # all instances have finished their path to <EOS>
-
-                (sequence_output_rpt, visual_output_rpt, input_ids_rpt, input_mask_rpt, video_mask_rpt,task_type_rpt, bbx_output_rpt, bbx_mask_rpt), \
-                inst_idx_to_position_map = collate_active_info((sequence_output_rpt, visual_output_rpt, input_ids_rpt, input_mask_rpt, video_mask_rpt,task_type_rpt,bbx_output_rpt, bbx_mask_rpt),
-                                                               inst_idx_to_position_map, active_inst_idx_list, n_bm, device
-                                                               )
+                
+                if args.fine_tune_extractor == False:
+                    (sequence_output_rpt, visual_output_rpt, input_ids_rpt, input_mask_rpt, video_mask_rpt,task_type_rpt, bbx_output_rpt, bbx_mask_rpt), \
+                    inst_idx_to_position_map = collate_active_info((sequence_output_rpt, visual_output_rpt, input_ids_rpt, input_mask_rpt, video_mask_rpt,task_type_rpt,bbx_output_rpt, bbx_mask_rpt),
+                                                                inst_idx_to_position_map, active_inst_idx_list, n_bm, device
+                                                                )
+                else:
+                    (sequence_output_rpt, visual_output_rpt, input_ids_rpt, input_mask_rpt, video_mask_rpt,task_type_rpt), \
+                    inst_idx_to_position_map = collate_active_infoVL((sequence_output_rpt, visual_output_rpt, input_ids_rpt, input_mask_rpt, video_mask_rpt,task_type_rpt),
+                                                                inst_idx_to_position_map, active_inst_idx_list, n_bm, device
+                                                                )
 
             batch_hyp, batch_scores = collect_hypothesis_and_scores(inst_dec_beams, 1)
             result_list = [batch_hyp[i][0] for i in range(n_inst)]
@@ -689,6 +863,7 @@ def eval_epoch(args, model, test_dataloader, tokenizer, device, n_gpu, nlgEvalOb
                 decode_text = decode_text.replace(" ##", "").strip("##").strip()
                 caption_list_byTask[task_type.tolist()[re_idx]].append(decode_text)
                 all_caption_lists.append(decode_text)
+    progress_bar.close()
 
     # Save full results
     if test_set is not None and hasattr(test_set, 'iter2video_pairs_dict'):
@@ -712,6 +887,7 @@ def eval_epoch(args, model, test_dataloader, tokenizer, device, n_gpu, nlgEvalOb
         for ground_txt in all_caption_lists:
             writer.write(ground_txt + "\n")
 
+    all_caption_lists = None
     if args.datatype == "msrvtt":
         all_caption_lists = []
         sentences_dict = test_dataloader.dataset.sentences_dict
@@ -721,33 +897,56 @@ def eval_epoch(args, model, test_dataloader, tokenizer, device, n_gpu, nlgEvalOb
             sentences = video_sentences_dict[video_id]
             all_caption_lists.append(sentences)
         all_caption_lists = [list(itms) for itms in zip(*all_caption_lists)]
-    else:
-        all_caption_lists = [all_caption_lists]
 
     # Evaluate
     for task in test_tasks:
-        r  = [caption_list_byTask[task]]
-        h  = result_list_byTask[task]
+        if all_caption_lists is None:
+            r  = [caption_list_byTask[task]]
+            h  = result_list_byTask[task]
+        else:
+            r = all_caption_lists
+            h = all_result_lists
         metrics_nlg = nlgEvalObj.compute_metrics(ref_list=r, hyp_list=h)
         logger.info(">>> TASK {:d}: BLEU_1: {:.4f}, BLEU_2: {:.4f}, BLEU_3: {:.4f}, BLEU_4: {:.4f}".
                     format(task, metrics_nlg["Bleu_1"], metrics_nlg["Bleu_2"], metrics_nlg["Bleu_3"], metrics_nlg["Bleu_4"]))
         logger.info(">>> TASK {:d}: METEOR: {:.4f}, ROUGE_L: {:.4f}, CIDEr: {:.4f}".format(task, metrics_nlg["METEOR"], metrics_nlg["ROUGE_L"], metrics_nlg["CIDEr"]))
 
-        Bleu_4 = metrics_nlg["Bleu_4"]
-    return Bleu_4
+        Scores = metrics_nlg
+    return Scores
 
 DATALOADER_DICT = {}
 DATALOADER_DICT["youcook"] = {"train":dataloader_youcook_train, "val":dataloader_youcook_test}
-DATALOADER_DICT["msrvtt"] = {"train":dataloader_msrvtt_train, "val":dataloader_msrvtt_test}
 DATALOADER_DICT["ourds"] = {"train":dataloader_ourds_train, "val":dataloader_ourds_test}
 
-action_list = json.load(open('/disk/0/scratch/jack/nsva/Univl_bbxfea/UniVL-main/action_list.json', 'r'))
+DATALOADER_DICT["ourds-CLIP"] = {"train":dataloader_ourds_CLIP_train, "val":dataloader_ourds_CLIP_test}
+
+action_list = json.load(open('{}/data/action_list.json'.format(os.environ["DIR_PATH"]), 'r'))
 action_token2full_description = {'action%s'%a_idx:a_l.lower().replace('_',' ').replace('-',' ') for a_idx, a_l in enumerate(action_list)}
 
-def main():
+
+class DictToObject:
+    def __init__(self, dictionary):
+        for key, value in dictionary.items():
+            setattr(self, key, value)
+
+def init_training_caption(args):
     global logger
-    args = get_args()
-    args = set_seed_logger(args)
+    if args == None:
+        args = get_args()
+        
+    if args.do_eval:
+        output_dir="attention_scores"
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        else:
+            # Delete the existing attention plots
+            for filename in os.listdir(output_dir):
+                if filename.endswith('.npy'):
+                    os.remove(os.path.join(output_dir, filename))
+    
+    if isinstance(args, dict):
+        args = DictToObject(args)
+    args, _ = set_seed_logger(args)
     device, n_gpu = init_device(args, args.local_rank)
 
     tokenizer = BertTokenizer.from_pretrained(args.bert_model, do_lower_case=args.do_lower_case)
@@ -773,23 +972,16 @@ def main():
     model.bert.to(device)
     model.bert.embeddings.to(device)
     model.bert.embeddings.word_embeddings.to(device)
-
-    # for name, param in model.named_parameters():
-    #     if param.requires_grad:
-    #         if 'bbx' in name:
-    #             print(name)
-    #         # print(name)
-    #     else:
-    #         # if 'bbx' in name:
-    #         #     print('no grad ' +name)
-    #         # print('no-grad ' +name)
-    #         continue
-    assert args.task_type == "caption"
+    
+    
+    assert "caption" in args.task_type
     nlgEvalObj = NLGEval(no_overlap=False, no_skipthoughts=True, no_glove=True, metrics_to_omit=None)
 
     assert args.datatype in DATALOADER_DICT
     args.video_feature = pickle.load(open(args.features_path, 'rb'))
     args.video_bbx_feature = pickle.load(open(args.bbx_features_path, 'rb'))
+    if args.datatype == "ourds-audio-bbx":
+        args.audio_feature = pickle.load(open(args.audio_features_path, 'rb'))
 
     val_dataloader, val_length = DATALOADER_DICT[args.datatype]["val"](args, tokenizer,split_type='val')
     test_dataloader, test_length = DATALOADER_DICT[args.datatype]["val"](args, tokenizer,split_type='test')
@@ -816,35 +1008,75 @@ def main():
             logger.info("  Batch size = %d", args.batch_size)
             logger.info("  Num steps = %d", num_train_optimization_steps * args.gradient_accumulation_steps)
 
-        best_score = 0.00001
+        best_score = None
         best_output_model_file = None
         global_step = 0
         debug_eval = False
+        conf ={}
+        for key,value in args.__dict__.items():
+            if(key in ["video_feature", "video_bbx_feature", "cos", "device", "audio_feature"]):
+                continue
+            conf[key] = value
+        # start a new wandb run to track this script
+        wandb.init(
+            # set the wandb project where this run will be logged
+            project="Multimodal-Fusion-Bottleneck",
+            name="{}_{}_{}_{}_{}_enc_{}_cross_{}_declay_{}_conv_{}".format(args.task_type, args.datatype, args.bert_model, args.lr, args.batch_size,  args.visual_num_hidden_layers, args.cross_num_hidden_layers, args.decoder_num_hidden_layers ,args.bottleneck_use_conv),
+            # track hyperparameters and run metadata
+            config=conf,
+        ) 
+        # writer = SummaryWriter(
+        #     "runs/{}_{}_{}_{}_{}_{}_bottley_{}_bottdim_{}_enc_{}_cross_{}_declay_{}_conv_{}".format(datetime.now(),args.task_type, args.datatype, args.bert_model, args.lr, args.batch_size, args.bottleneck_fusion_layers, args.bottleneck_dim, args.visual_num_hidden_layers, args.cross_num_hidden_layers,args.decoder_num_hidden_layers, args.bottleneck_use_conv)
+        # )
+        writer = None
 
         if debug_eval is True:
-            Bleu_4 = eval_epoch(args, model, val_dataloader, tokenizer, device, n_gpu, nlgEvalObj=nlgEvalObj)
+            Scores = eval_epoch(args, model, val_dataloader, tokenizer, device, n_gpu, nlgEvalObj=nlgEvalObj)
             _ = eval_epoch(args, model, test_dataloader, tokenizer, device, n_gpu, nlgEvalObj=nlgEvalObj)
             raise
 
         for epoch in range(args.epochs):
-            train_sampler.set_epoch(epoch)
+            # train_sampler.set_epoch(epoch)
 
             if debug_eval is False:
+                logger.info("Epoch: %d/%s", epoch + 1, args.epochs)
                 tr_loss, global_step = train_epoch(epoch, args, model, train_dataloader, tokenizer, device, n_gpu, optimizer,
-                                               scheduler, global_step, nlgEvalObj=nlgEvalObj, local_rank=args.local_rank)
+                                               scheduler, global_step, nlgEvalObj=nlgEvalObj, local_rank=args.local_rank, writer=writer)
             else:
                 tr_loss = 0
             if args.local_rank == 0:
                 logger.info("Epoch %d/%s Finished, Train Loss: %f", epoch + 1, args.epochs, tr_loss)
                 output_model_file = save_model(epoch, args, model, type_name="")
                 if epoch > 0:
-                    Bleu_4 = eval_epoch(args, model, val_dataloader, tokenizer, device, n_gpu, nlgEvalObj=nlgEvalObj)
-                    if best_score <= Bleu_4:
-                        best_score = Bleu_4
+                    logger.info("***** Running validation *****")
+                    Scores = eval_epoch(args, model, val_dataloader, tokenizer, device, n_gpu, nlgEvalObj=nlgEvalObj)
+                    if writer is not None:
+                        writer.add_scalar("Bleu_4/test", Scores["Bleu_4"], epoch)
+                        for key, value in Scores.items():
+                            writer.add_scalar("%s/test"%key, value, epoch)
+                    if wandb is not None:
+                        scores = {key : value for key, value in Scores.items()}
+                        wandb.log(scores)
+                    # Scores = Scores["Bleu_4"]
+                    average_improvement = 0
+                    if best_score is not None:
+                        for key in Scores.keys():
+                            average_improvement += 1 if  (Scores[key] - best_score[key]) > 0 else 0
+                        
+                    if (best_score == None or average_improvement > 0) and epoch > 1:
+                        best_score = Scores
                         best_output_model_file = output_model_file
                         logger.info('This is the best model in val set so far, testing test set....')
-                        eval_epoch(args, model, test_dataloader, tokenizer, device, n_gpu, nlgEvalObj=nlgEvalObj)
-                    logger.info("The best model is: {}, the Bleu_4 is: {:.4f}".format(best_output_model_file, best_score))
+                        
+                        Scores = eval_epoch(args, model, test_dataloader, tokenizer, device, n_gpu, nlgEvalObj=nlgEvalObj)
+                        if writer is not None:
+                            writer.add_scalar("Bleu_4/test", Scores["Bleu_4"], epoch)
+                            for key, value in Scores.items():
+                                writer.add_scalar("%s/test"%key, value, epoch)
+                        if wandb is not None:
+                            scores = {key : value for key, value in Scores.items()}
+                            wandb.log(scores)
+                    logger.info("The best model is: {}, the Bleu_4 is: {:.4f}".format(best_output_model_file, best_score["Bleu_4"] if best_score is not None else 0.0))
                 else:
                     logger.warning("Skip the evaluation after {}-th epoch.".format(epoch+1))
 
@@ -852,12 +1084,94 @@ def main():
             test_dataloader, test_length = DATALOADER_DICT[args.datatype]["val"](args, tokenizer,split_type='test')
             model = load_model(-1, args, n_gpu, device, model_file=best_output_model_file)
             eval_epoch(args, model, test_dataloader, tokenizer, device, n_gpu, nlgEvalObj=nlgEvalObj)
+        wandb.finish()
     elif args.do_eval:
         if args.local_rank == 0:
 
             test_dataloader, test_length = DATALOADER_DICT[args.datatype]["val"](args, tokenizer,split_type='test')
-            model = load_model(-1, args, n_gpu, device, model_file='/home/ubuntu/vcap/content/Univl_bbxfea/ckpt_ourds_caption/pytorch_model.bin.8-sota-bbx+timesformer')
+            model = load_model(-1, args, n_gpu, device, model_file=args.init_model)
             eval_epoch(args, model, test_dataloader, tokenizer, device, n_gpu, nlgEvalObj=nlgEvalObj)
 
+class Args_Caption:
+    def __init__(self, data_dir="data", features_dir="features", do_eval=True, task="caption", output_dir="output", export_attention_scores=False):
+        self.data_dir = data_dir
+        self.features_dir = features_dir
+        self.do_pretrain = False
+        self.use_prefix_tuning = False
+        self.do_train = not do_eval
+        self.do_eval = do_eval
+        self.train_csv = "{}/ourds_train.44k.csv".format(self.data_dir)
+        self.val_csv = "{}/ourds_JSFUSION_test.csv".format(self.data_dir)
+        self.data_path = "{}/new_ourds_description_only.json".format(self.data_dir)
+        self.bbx_features_path = "{}/cls2_ball_basket_sum_concat_original_courtline_fea_1.pickle".format(self.data_dir)
+        self.features_path = "{}/ourds_videos_timesformer_features.pickle".format(self.features_dir)
+        self.num_thread_reader = 0
+        self.lr = 3e-5
+        self.epochs = 10
+        self.batch_size = 32
+        self.batch_size_val = 16
+        self.lr_decay = 0.9
+        self.n_display = 100
+        self.video_dim = 768
+        self.seed = 42
+        self.max_words = 30
+        self.max_frames = 48
+        self.feature_framerate = 1
+        self.min_time = 5.0
+        self.margin = 0.1
+        self.hard_negative_rate = 0.5
+        self.negative_weighting = 1
+        self.n_pair = 1
+        self.output_dir = '{}/{}'.format(os.environ["DIR_PATH"], output_dir)
+        self.bert_model = "bert-base-uncased"
+        self.visual_model = "visual-base"
+        self.cross_model = "cross-base"
+        self.decoder_model = "decoder-base"
+        self.init_model = "{}/weight/univl.pretrained.bin".format(".")
+        self.do_lower_case = True
+        self.warmup_proportion = 0.1
+        self.gradient_accumulation_steps = 1
+        self.n_gpu = 1
+        self.cache_dir = ""
+        self.fp16 = False
+        self.fp16_opt_level = 'O1'
+        self.task_type = task 
+        self.datatype = "ourds-CLIP" 
+        self.world_size = 0
+        self.local_rank = 0
+        self.coef_lr = 0.1
+        self.use_mil = False
+        self.context_only = False
+        self.multibbxs = True
+        self.sampled_use_mil = False
+        self.text_num_hidden_layers = 12
+        self.visual_num_hidden_layers = 6
+        self.cross_num_hidden_layers = 3
+        self.decoder_num_hidden_layers = 3
+        self.loss = "MSE"
+        self.bottleneck_dim = 0,
+        self.bottleneck_fusion_layers = 0,
+        self.bottleneck_use_conv = False
+        self.export_attn_scores = export_attention_scores
+        self.visual_use_diagonal_masking = True
+        self.train_tasks = [0,0,1,0]
+        self.cross_masking = None # "upper", "lower", "upper-no-inp", "lower-no-inp", None, "random", "random-global"
+        self.test_tasks = [0,0,1,0]
+        self.t1_postprocessing = True
+        self.stage_two = True
+        self.unsup_pretrain = False
+        self.bert_weights_only = False
+        self.use_answer = None
+        self.fine_tune_extractor = False
+        self.player_embedding = "CLIP" # BERT, CLIP, none, BERT-Stat
+        self.use_random_embeddings = False
+        self.player_embedding_order = "lineup" # lineup, posession
+        self.use_BBX_features = True
+        self.max_rand_players = 5
 if __name__ == "__main__":
-    main()
+    args = get_args()
+
+    # args = Args_Caption(features_dir="data", do_eval=False, output_dir="Finetuned_models/tmp3", export_attention_scores=False, task="caption-CLIP")
+    # args.freeze_encoder = False
+    init_training_caption(args)
+
