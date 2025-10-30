@@ -21,7 +21,6 @@ The following sections contain scripts or PyTorch code for:
 
 - A. Download pre-processed NSVA dataset.
 - B. Training/evaluation script: (1) video captioning, (2) action recognition and (3) player identification.
-- C. Pre-trained weigths.
 
 ## Install Dependencies
 
@@ -76,19 +75,16 @@ Replace `/path/to/your/NSVA_Clean/NSVA` with the actual absolute path to your pr
 The base NSVA dataset files should be downloaded as described in the original NSVA repository at this [link](https://github.com/jackwu502/NSVA/tree/main/SportsFormer/data). This includes the core video features, training/validation CSV files, and description JSON files.
 
 ### Complementary Files for Identity Features
-Additional data files required for player identity features (CLIP embeddings, player tokens, possession sequences, etc.) and pre-trained model weights are available at:
+Additional data files required for player identity features (CLIP embeddings, player tokens, possession sequences, etc.) are available at:
 
 **[PLACEHOLDER: https://github.com/your-username/NSVA-identity-data]**
 
-Download and place:
-- **Data files** in the `data/` directory
-- **Pre-trained model weights** in the `weight/` directory
+Download and place the data files in the `data/` directory.
 
 The complementary data package includes:
 - CLIP-based player embeddings
 - Ball possession sequence data
 - Updated description JSON files with identity annotations
-- Pre-trained model checkpoints for evaluation
 
 ## Running the Models
 
@@ -127,9 +123,7 @@ python main_task_caption.py \
   --test_tasks 0,0,1,0
 ```
 
-Evaluate with a pre-trained model:
-
-**Note**: Download the pre-trained caption model from the complementary files repository (link above) and place it in `weight/best_model_caption_identity.bin` before running evaluation.
+Evaluate trained model:
 
 ```bash
 python main_task_caption.py \
@@ -157,7 +151,7 @@ python main_task_caption.py \
   --test_tasks 0,0,1,0
 ```
 
-**Results** reproduced from pre-trained model 
+**Results** 
 
 | **Model Type**  | **C**  | **M** | **B@4** | **R_L** |
 | -----------------------------| ------- |  ----------| ----------| ----------|
@@ -201,9 +195,8 @@ python main_task_action.py \
 
 For coarse-grained actions, use `--action_level 2`. For event-level actions, use `--action_level 0`.
 
-Evaluate with a pre-trained model:
+Evaluate trained model:
 
-**Note**: Download the pre-trained action recognition models from the complementary files repository (link above) and place them in the `weight/` directory before running evaluation.
 
 ```bash
 # For fine-grained action recognition
@@ -233,7 +226,7 @@ python main_task_action.py \
   --action_level 1
 ```
 
-**Results** reproduced from pre-trained model 
+**Results** 
 
 | **Action Recognition**  | **SuccessRate**  | **mAcc.** | **mIoU** |
 | -----------------------------| ------- | -------- |----------| 
@@ -274,7 +267,7 @@ python main_task_player.py \
   --test_tasks 1,0,0,0
 ```
 
-Evaluate with a pre-trained model:
+Evaluate trained model:
 
 **Note**: Download the pre-trained player identification model from the complementary files repository (link above) and place it in `weight/best_model_player_identity.bin` before running evaluation.
 
@@ -314,11 +307,11 @@ Set the corresponding value to 1 to enable that task, 0 to disable.
 
 ### Training Information
 
-The pre-trained models provided were trained on a **single NVIDIA RTX 3090 GPU** with approximately **8 hours** of training time per task.
+The training was performed using **single NVIDIA RTX 3090 GPU** with approximately **8 hours** of training time per task.
 
 **Multi-GPU Training**: If you have access to multiple GPUs and want to accelerate training, please refer to the original [NSVA repository](https://github.com/jackwu502/NSVA) for instructions on distributed training across multiple GPUs.
 
-**Results** reproduced from pre-trained model 
+**Results** 
 
 | **Model Type**  | **SuccessRate**  | **mAcc.** | **mIoU** |
 | -----------------------------| ------- | -------- |----------|
