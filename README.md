@@ -180,7 +180,7 @@ python main_task_action.py \
   --val_csv data/ourds_JSFUSION_test.csv \
   --data_path data/ourds_description.json \
   --features_path data/ourds_videos_timesformer_features.pickle \
-  --cls2_ball_basket_sum_concat_courtseg_path data/cls2_ball_basket_sum_concat_original_courtline_fea.pickle \
+  --bbx_features_path data/cls2_ball_basket_sum_concat_original_courtline_fea_1.pickle \
   --output_dir output/ckpt_ourds_action_fine \
   --bert_model bert-base-uncased \
   --do_lower_case \
@@ -215,7 +215,7 @@ python main_task_action.py \
   --val_csv data/ourds_JSFUSION_test.csv \
   --data_path data/ourds_description.json \
   --features_path data/ourds_videos_timesformer_features.pickle \
-  --cls2_ball_basket_sum_concat_courtseg_path data/cls2_ball_basket_sum_concat_original_courtline_fea.pickle \
+  --bbx_features_path data/cls2_ball_basket_sum_concat_original_courtline_fea_1.pickle \
   --output_dir output/ckpt_ourds_action_fine \
   --bert_model bert-base-uncased \
   --do_lower_case \
@@ -256,7 +256,7 @@ python main_task_player.py \
   --val_csv data/ourds_JSFUSION_test.csv \
   --data_path data/ourds_description.json \
   --features_path data/ourds_videos_timesformer_features.pickle \
-  --cls2_ball_basket_sum_concat_courtseg_path data/cls2_ball_basket_sum_concat_original_courtline_fea.pickle \
+  --bbx_features_path data/cls2_ball_basket_sum_concat_original_courtline_fea_1.pickle \
   --output_dir output/ckpt_ourds_player \
   --bert_model bert-base-uncased \
   --do_lower_case \
@@ -287,7 +287,7 @@ python main_task_player.py \
   --val_csv data/ourds_JSFUSION_test.csv \
   --data_path data/ourds_description.json \
   --features_path data/ourds_videos_timesformer_features.pickle \
-  --cls2_ball_basket_sum_concat_courtseg_path data/cls2_ball_basket_sum_concat_original_courtline_fea.pickle \
+  --bbx_features_path data/cls2_ball_basket_sum_concat_original_courtline_fea_1.pickle \
   --output_dir output/ckpt_ourds_player \
   --bert_model bert-base-uncased \
   --do_lower_case \

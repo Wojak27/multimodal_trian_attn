@@ -74,8 +74,10 @@ def get_args(description='UniVL on Caption Task'):
     parser.add_argument('--min_time', type=float, default=5.0, help='Gather small clips')
     parser.add_argument('--margin', type=float, default=0.1, help='margin for loss')
     parser.add_argument('--hard_negative_rate', type=float, default=0.5, help='rate of intra negative sample')
+    parser.add_argument("--player_embedding", default="CLIP", type=str, help="Type of embedding to use for player ID features: CLIP, Rand, or BERT")
     parser.add_argument('--negative_weighting', type=int, default=1, help='Weight the loss for intra negative')
     parser.add_argument('--n_pair', type=int, default=1, help='Num of pair to output from data loader')
+    parser.add_argument('--max_rand_players', type=int, default=1, help='Number of random player to add into the feature space')
 
 
     parser.add_argument("--output_dir", default='./output/ckpt_ourds_caption', type=str, required=False,
@@ -87,6 +89,8 @@ def get_args(description='UniVL on Caption Task'):
 
 
     parser.add_argument("--init_model", default=None, type=str, required=False, help="Initial model.")
+    parser.add_argument("--use_BBX_features", action='store_true', help="If should use BBX features.")
+    parser.add_argument("--visual_use_diagonal_masking", action='store_true', help="If Triangular masking should be used in modality encoders.")
     parser.add_argument("--do_lower_case", action='store_true', help="Set this flag if you are using an uncased model.")
     parser.add_argument("--warmup_proportion", default=0.1, type=float,
                         help="Proportion of training to perform linear learning rate warmup for. E.g., 0.1 = 10%% of training.")
@@ -104,6 +108,7 @@ def get_args(description='UniVL on Caption Task'):
                              "See details at https://nvidia.github.io/apex/amp.html")
 
     parser.add_argument("--task_type", default="caption", type=str, help="Point the task `caption` to finetune.")
+    parser.add_argument("--player_embedding_order", default="lineup", type=str, help="Type of player grounding, lineup or possession")
     parser.add_argument("--datatype", default="ourds", type=str, help="Point the dataset `youcook` to finetune.")
 
     parser.add_argument("--world_size", default=0, type=int, help="distribted training")
@@ -393,13 +398,10 @@ def dataloader_ourds_CLIP_train(args, tokenizer):
         max_frames=args.max_frames,
         split_type="train",
         split_task = args.train_tasks,
-        use_answer=args.use_answer,
-        is_pretraining=args.do_pretrain,
         use_random_embeddings=args.use_random_embeddings,
         num_samples=100000,
         mask_prob=0.25,
         only_players=True,
-        use_real_name=False,
         player_embedding_order=args.player_embedding_order,
         use_BBX_features=args.use_BBX_features,
         player_embedding=args.player_embedding,
@@ -431,11 +433,8 @@ def dataloader_ourds_CLIP_test(args, tokenizer, split_type="test"):
         use_random_embeddings=args.use_random_embeddings,
         split_type=split_type,
         split_task = args.test_tasks,
-        use_answer=args.use_answer,
-        is_pretraining=args.do_pretrain,
         num_samples=0,
         only_players=True,
-        use_real_name=False,
         player_embedding_order=args.player_embedding_order,
         use_BBX_features=args.use_BBX_features,
         player_embedding=args.player_embedding,
@@ -1020,8 +1019,8 @@ def init_training_caption(args):
         # start a new wandb run to track this script
         wandb.init(
             # set the wandb project where this run will be logged
-            project="Multimodal-Fusion-Bottleneck",
-            name="{}_{}_{}_{}_{}_enc_{}_cross_{}_declay_{}_conv_{}".format(args.task_type, args.datatype, args.bert_model, args.lr, args.batch_size,  args.visual_num_hidden_layers, args.cross_num_hidden_layers, args.decoder_num_hidden_layers ,args.bottleneck_use_conv),
+            project="PlayerIdentityCaptioning",
+            name="{}_{}_{}_{}_{}_enc_{}_cross_{}_declay_{}".format(args.task_type, args.datatype, args.bert_model, args.lr, args.batch_size,  args.visual_num_hidden_layers, args.cross_num_hidden_layers, args.decoder_num_hidden_layers),
             # track hyperparameters and run metadata
             config=conf,
         ) 
@@ -1161,7 +1160,6 @@ class Args_Caption:
         self.stage_two = True
         self.unsup_pretrain = False
         self.bert_weights_only = False
-        self.use_answer = None
         self.fine_tune_extractor = False
         self.player_embedding = "CLIP" # BERT, CLIP, none, BERT-Stat
         self.use_random_embeddings = False
@@ -1172,6 +1170,5 @@ if __name__ == "__main__":
     args = get_args()
 
     # args = Args_Caption(features_dir="data", do_eval=False, output_dir="Finetuned_models/tmp3", export_attention_scores=False, task="caption-CLIP")
-    # args.freeze_encoder = False
     init_training_caption(args)
 

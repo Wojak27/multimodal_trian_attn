@@ -61,7 +61,8 @@ def get_args(description='UniVL on Caption Task'):
     parser.add_argument('--features_path', type=str, default='./data/ourds_videos_timesformer_features.pickle',
                         help='feature path for 2D features')
 
-
+    parser.add_argument('--bbx_features_path', type=str, default='./ourds_bbx_data/ourds_videos_features.pickle',
+                    help='feature path for 2D features')
     "Use re-organzied feature from JackWu"
     parser.add_argument('--cls2_ball_basket_sum_concat_courtseg_path', type=str, default='./data/cls2_ball_basket_sum_concat_original_courtline_fea.pickle',
                         help='feature path for 2D features')
@@ -81,8 +82,10 @@ def get_args(description='UniVL on Caption Task'):
     parser.add_argument('--feature_framerate', type=int, default=1, help='')
     parser.add_argument('--min_time', type=float, default=5.0, help='Gather small clips')
     parser.add_argument('--margin', type=float, default=0.1, help='margin for loss')
+    parser.add_argument("--use_BBX_features", action='store_true', help="If should use BBX features.")
     parser.add_argument('--hard_negative_rate', type=float, default=0.5, help='rate of intra negative sample')
     parser.add_argument('--negative_weighting', type=int, default=1, help='Weight the loss for intra negative')
+    parser.add_argument('--context_only', action='store_true', help="Whether use contextual video feature, e.g., S3D or TimeSformer feature only")
     parser.add_argument('--n_pair', type=int, default=1, help='Num of pair to output from data loader')
 
     # parser.add_argument("--output_dir", default='/media/chris/hdd1/UniVL_processing_code/ourds_data/ckpt_ourds_caption', type=str, required=False,
@@ -92,6 +95,8 @@ def get_args(description='UniVL on Caption Task'):
     parser.add_argument("--output_dir", default='./output/ckpt_ourds_caption_actionFine', type=str, required=False,
                             help="The output directory where the model predictions and checkpoints will be written.")
     parser.add_argument("--bert_model", default="bert-base-uncased", type=str, required=False, help="Bert pre-trained model")
+    parser.add_argument("--visual_use_diagonal_masking", action='store_true', help="If Triangular masking should be used in modality encoders.")
+    parser.add_argument('--max_rand_players', type=int, default=1, help='Number of random player to add into the feature space')
     parser.add_argument("--visual_model", default="visual-base", type=str, required=False, help="Visual module")
     parser.add_argument("--cross_model", default="cross-base", type=str, required=False, help="Cross module")
     parser.add_argument("--decoder_model", default="decoder-base", type=str, required=False, help="Decoder module")
@@ -124,7 +129,9 @@ def get_args(description='UniVL on Caption Task'):
     parser.add_argument('--sampled_use_mil', action='store_true', help="Whether use MIL, has a high priority than use_mil.")
 
     parser.add_argument('--text_num_hidden_layers', type=int, default=2, help="Layer NO. of text.")
+    parser.add_argument("--player_embedding_order", default="lineup", type=str, help="Type of player grounding, lineup or possession")
     parser.add_argument('--visual_num_hidden_layers', type=int, default=3, help="Layer NO. of visual.")
+    parser.add_argument("--player_embedding", default="CLIP", type=str, help="Type of embedding to use for player ID features: CLIP, Rand, or BERT")
     parser.add_argument('--cross_num_hidden_layers', type=int, default=3, help="Layer NO. of cross.")
     parser.add_argument('--decoder_num_hidden_layers', type=int, default=6, help="Layer NO. of decoder.")
 
@@ -410,13 +417,10 @@ def dataloader_ourds_CLIP_train(args, tokenizer):
         max_frames=args.max_frames,
         split_type="train",
         split_task = args.train_tasks,
-        use_answer=args.use_answer,
-        is_pretraining=args.do_pretrain,
         use_random_embeddings=args.player_embedding == "Rand",
         num_samples=100000,
         mask_prob=0.25,
         only_players=True,
-        use_real_name=False,
         player_embedding_order=args.player_embedding_order,
         use_BBX_features=args.use_BBX_features,
         player_embedding=args.player_embedding,
@@ -448,11 +452,8 @@ def dataloader_ourds_CLIP_test(args, tokenizer, split_type="test"):
         use_random_embeddings=args.player_embedding == "Rand",
         split_type=split_type,
         split_task = args.test_tasks,
-        use_answer=args.use_answer,
-        is_pretraining=args.do_pretrain,
         num_samples=0,
         only_players=True,
-        use_real_name=False,
         player_embedding_order=args.player_embedding_order,
         use_BBX_features=args.use_BBX_features,
         player_embedding=args.player_embedding,
@@ -1032,7 +1033,7 @@ def main(args):
     wandb.init(
         # set the wandb project where this run will be logged
         project="Multimodal-Fusion-Bottleneck",
-        name="{}_{}_{}_{}_{}_bottley_{}_bottdim_{}_enc_{}_cross_{}_declay_{}_conv_{}".format(args.task_type, args.datatype, args.bert_model, args.lr, args.batch_size, args.bottleneck_fusion_layers, args.bottleneck_dim, args.visual_num_hidden_layers, args.cross_num_hidden_layers, args.decoder_num_hidden_layers ,args.bottleneck_use_conv),
+        name="{}_{}_{}_{}_{}_enc_{}_cross_{}_declay_{}".format(args.task_type, args.datatype, args.bert_model, args.lr, args.batch_size, args.visual_num_hidden_layers, args.cross_num_hidden_layers, args.decoder_num_hidden_layers),
         # track hyperparameters and run metadata
         config=conf,
     ) 

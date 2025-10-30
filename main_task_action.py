@@ -19,7 +19,7 @@ import argparse
 import json
 from dataloaders.dataloader_ourds_CLIP import OURDS_CLIP_DataLoader
 from eval_utils import acc_iou, mean_category_acc, success_rate
-from main_task_caption_identity import Args_Caption
+from main_task_caption import Args_Caption
 from modules.tokenization import BertTokenizer
 from modules.file_utils import PYTORCH_PRETRAINED_BERT_CACHE
 from modules.modeling import UniVL
@@ -58,20 +58,10 @@ def get_args(description='UniVL on Caption Task'):
     court_features_path:        [Timesformer] on plotted courtling seg,     shape [numFrames, dimFeature (768 * 2)]
     bbx_features_path:          [Timesformer] on summed cls2+ball+basket,   shape [numFrames, dimFeature (768)]
     '''
-    # parser.add_argument('--features_path', type=str, default='/local/riemann1/home/zhufl/hdd1/UniVL_processing_code/ourds_videos_timesformer_features.pickle',
-    #                     help='feature path for 2D features')
-    # parser.add_argument('--courtseg_features_path', type=str, default='/local/riemann1/home/zhufl/hdd1/UniVL_processing_code/ourds_courtlineseg_data/ourds_videos_features.pickle',
-    #                     help='feature path for 2D features')
-    # parser.add_argument('--bbxcls2_features_path', type=str, default='/local/riemann1/home/zhufl/hdd1/UniVL_processing_code/ourds_cls2_data/ourds_videos_features.pickle',
-    #                     help='feature path for 2D features')
-    # parser.add_argument('--bbxball_features_path', type=str, default='/local/riemann1/home/zhufl/hdd1/UniVL_processing_code/ourds_ball_data/ourds_videos_features.pickle',
-    #                     help='feature path for 2D features')
-    # parser.add_argument('--bbxbasket_features_path', type=str, default='/local/riemann1/home/zhufl/hdd1/UniVL_processing_code/ourds_basket_data/ourds_videos_features.pickle',
-    #                     help='feature path for 2D features')
-
-    "Use re-organzied feature from JackWu"
-    parser.add_argument('--cls2_ball_basket_sum_concat_courtseg_path', type=str, default='./data/cls2_ball_basket_sum_concat_original_courtline_fea.pickle',
+    parser.add_argument('--features_path', type=str, default='data/ourds_videos_timesformer_features.pickle',
                         help='feature path for 2D features')
+    parser.add_argument('--bbx_features_path', type=str, default='./ourds_bbx_data/ourds_videos_features.pickle',
+                    help='feature path for 2D features')
 
     parser.add_argument('--num_thread_reader', type=int, default=4, help='')
     parser.add_argument('--lr', type=float, default=3e-5, help='initial learning rate')
@@ -100,12 +90,18 @@ def get_args(description='UniVL on Caption Task'):
                             help="The output directory where the model predictions and checkpoints will be written.")
     parser.add_argument("--bert_model", default="bert-base-uncased", type=str, required=False, help="Bert pre-trained model")
     parser.add_argument("--visual_model", default="visual-base", type=str, required=False, help="Visual module")
+    parser.add_argument('--context_only', action='store_true', help="Whether use contextual video feature, e.g., S3D or TimeSformer feature only")
     parser.add_argument("--cross_model", default="cross-base", type=str, required=False, help="Cross module")
+    parser.add_argument("--player_embedding_order", default="lineup", type=str, help="Type of player grounding, lineup or possession")
+    parser.add_argument("--player_embedding", default="CLIP", type=str, help="Type of embedding to use for player ID features: CLIP, Rand, or BERT")
+    parser.add_argument('--max_rand_players', type=int, default=1, help='Number of random player to add into the feature space')
     parser.add_argument("--decoder_model", default="decoder-base", type=str, required=False, help="Decoder module")
+    parser.add_argument("--visual_use_diagonal_masking", action='store_true', help="If Triangular masking should be used in modality encoders.")
     # parser.add_argument("--init_model", default='/media/chris/hdd1/UniVL_processing_code/UniVL-main/weight/univl.pretrained.bin', type=str, required=False, help="Initial model.")
     parser.add_argument("--init_model", default='./weight/univl.pretrained.bin', type=str, required=False, help="Initial model.")
 
     parser.add_argument("--do_lower_case", action='store_true', help="Set this flag if you are using an uncased model.")
+    parser.add_argument("--use_BBX_features", action='store_true', help="If should use BBX features.")
     parser.add_argument("--warmup_proportion", default=0.1, type=float,
                         help="Proportion of training to perform linear learning rate warmup for. E.g., 0.1 = 10%% of training.")
     parser.add_argument('--gradient_accumulation_steps', type=int, default=1,
@@ -149,7 +145,8 @@ def get_args(description='UniVL on Caption Task'):
     parser.add_argument('--stage_two', action='store_true', help="Whether training with decoder.")
     parser.add_argument('--action_level', default=1, help="Whether decide which action do we want to perform recognition, range from 0-2")
     args = parser.parse_args()
-
+    
+    args.action_level = int(args.action_level)
     args.do_train = True
     args.stage_two = True
     args.do_lower_case = True
@@ -412,7 +409,7 @@ def dataloader_ourds_test(args, tokenizer, split_type="test", action_converter=N
 def dataloader_ourds_CLIP_train(args, tokenizer, action_converter=None):
     ourds_dataset = OURDS_CLIP_DataLoader(
         csv_path=args.train_csv,
-        json_path="./data/new_ourds_description_only.json",
+        json_path="data/new_ourds_description_only.json",
         video_feature=args.video_feature,
         bbx_feature=args.video_bbx_feature,
         max_words=args.max_words,
@@ -421,13 +418,10 @@ def dataloader_ourds_CLIP_train(args, tokenizer, action_converter=None):
         max_frames=args.max_frames,
         split_type="train",
         split_task = args.train_tasks,
-        use_answer=args.use_answer,
-        is_pretraining=args.do_pretrain,
         use_random_embeddings=args.player_embedding == "Rand",
         num_samples=100000,
         mask_prob=0.25,
         only_players=True,
-        use_real_name=False,
         player_embedding_order=args.player_embedding_order,
         use_BBX_features=args.use_BBX_features,
         player_embedding=args.player_embedding,
@@ -450,7 +444,7 @@ def dataloader_ourds_CLIP_train(args, tokenizer, action_converter=None):
 def dataloader_ourds_CLIP_test(args, tokenizer, split_type="test", action_converter=None):
     ourds_testset = OURDS_CLIP_DataLoader(
         csv_path=args.val_csv,
-        json_path="./data/new_ourds_description_only.json",
+        json_path="data/new_ourds_description_only.json",
         video_feature=args.video_feature,
         bbx_feature=args.video_bbx_feature,
         max_words=args.max_words,
@@ -460,11 +454,8 @@ def dataloader_ourds_CLIP_test(args, tokenizer, split_type="test", action_conver
         use_random_embeddings=args.player_embedding == "Rand",
         split_type=split_type,
         split_task = args.test_tasks,
-        use_answer=args.use_answer,
-        is_pretraining=args.do_pretrain,
         num_samples=0,
         only_players=True,
-        use_real_name=False,
         player_embedding_order=args.player_embedding_order,
         use_BBX_features=args.use_BBX_features,
         player_embedding=args.player_embedding,
@@ -1016,7 +1007,6 @@ def main(args):
     if isinstance(args, dict):
         args = DictToObject(args)
     args = set_seed_logger(args)
-    assert args.action_level in [0, 1, 2]
     print("Running action recognition on level {}".format(args.action_level))
 
     device, n_gpu = init_device(args, args.local_rank)
