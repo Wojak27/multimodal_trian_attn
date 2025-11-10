@@ -77,7 +77,7 @@ The base NSVA dataset files should be downloaded as described in the original NS
 ### Complementary Files for Identity Features
 Additional data files required for player identity features (CLIP embeddings, player tokens, possession sequences, etc.) are available at:
 
-**[PLACEHOLDER: https://github.com/your-username/NSVA-identity-data]**
+**[Google Drive: https://drive.google.com/file/d/1ViTgGVIbqTcrqPhoLp50O703LB9CdWzQ/view?usp=sharing]**
 
 Download and place the data files in the `data/` directory.
 
@@ -301,7 +301,7 @@ python main_task_player.py \
 - T1 = Player Recognition
 - T2 = Action Prediction (Recognition)
 - T3 = Description Generation
-- T4 = Commentary Generation
+- T4 = Commentary Generation (not used in the study)
 
 Set the corresponding value to 1 to enable that task, 0 to disable.
 
